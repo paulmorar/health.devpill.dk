@@ -210,3 +210,22 @@ export const wellnessLogs = pgTable(
   },
   (t) => [uniqueIndex("wellness_logs_user_date_idx").on(t.userId, t.date)],
 );
+
+// ─── Phase 3: per-user goals ─────────────────────────────────────
+// Singleton-per-user row holding targets. Everything nullable so the user
+// only sets what they care about; UI hides progress for unset goals.
+export const goals = pgTable("goals", {
+  userId: text()
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  dailyKcal: integer(),
+  dailyProteinG: integer(),
+  dailyCarbsG: integer(),
+  dailyFatG: integer(),
+  weeklyActiveKm: doublePrecision(),
+  weeklyActiveMinutes: integer(),
+  weeklyActivitiesCount: integer(),
+  targetWeightKg: doublePrecision(),
+  dailySleepHours: doublePrecision(),
+  updatedAt: timestamp({ mode: "date" }).defaultNow().notNull(),
+});

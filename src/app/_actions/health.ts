@@ -11,7 +11,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { foodLogs, wellnessLogs } from "@/db/schema";
+import { foodLogs, goals, wellnessLogs } from "@/db/schema";
 
 // ─── Food ────────────────────────────────────────────────────────
 
@@ -166,6 +166,75 @@ export async function upsertWellnessLogAction(
         notes: d.notes ?? null,
         updatedAt: sql`now()`,
       },
+    });
+
+  revalidatePath("/");
+  return { ok: true };
+}
+
+// ─── Goals ────────────────────────────────────────────────────────
+
+const goalsSchema = z.object({
+  dailyKcal: z.coerce.number().int().min(0).max(20_000).optional(),
+  dailyProteinG: z.coerce.number().int().min(0).max(1000).optional(),
+  dailyCarbsG: z.coerce.number().int().min(0).max(2000).optional(),
+  dailyFatG: z.coerce.number().int().min(0).max(1000).optional(),
+  weeklyActiveKm: z.coerce.number().min(0).max(1000).optional(),
+  weeklyActiveMinutes: z.coerce.number().int().min(0).max(10_000).optional(),
+  weeklyActivitiesCount: z.coerce.number().int().min(0).max(100).optional(),
+  targetWeightKg: z.coerce.number().positive().max(500).optional(),
+  dailySleepHours: z.coerce.number().min(0).max(24).optional(),
+});
+
+export type GoalsActionResult = { ok: true } | { ok: false; error: string };
+
+export async function upsertGoalsAction(
+  _prev: GoalsActionResult | null,
+  formData: FormData,
+): Promise<GoalsActionResult> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false, error: "Not signed in" };
+
+  const parsed = goalsSchema.safeParse({
+    dailyKcal: emptyToUndef(formData.get("dailyKcal")),
+    dailyProteinG: emptyToUndef(formData.get("dailyProteinG")),
+    dailyCarbsG: emptyToUndef(formData.get("dailyCarbsG")),
+    dailyFatG: emptyToUndef(formData.get("dailyFatG")),
+    weeklyActiveKm: emptyToUndef(formData.get("weeklyActiveKm")),
+    weeklyActiveMinutes: emptyToUndef(formData.get("weeklyActiveMinutes")),
+    weeklyActivitiesCount: emptyToUndef(formData.get("weeklyActivitiesCount")),
+    targetWeightKg: emptyToUndef(formData.get("targetWeightKg")),
+    dailySleepHours: emptyToUndef(formData.get("dailySleepHours")),
+  });
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues.map((i) => i.message).join(", "),
+    };
+  }
+
+  const d = parsed.data;
+  const row = {
+    userId,
+    dailyKcal: d.dailyKcal ?? null,
+    dailyProteinG: d.dailyProteinG ?? null,
+    dailyCarbsG: d.dailyCarbsG ?? null,
+    dailyFatG: d.dailyFatG ?? null,
+    weeklyActiveKm: d.weeklyActiveKm ?? null,
+    weeklyActiveMinutes: d.weeklyActiveMinutes ?? null,
+    weeklyActivitiesCount: d.weeklyActivitiesCount ?? null,
+    targetWeightKg: d.targetWeightKg ?? null,
+    dailySleepHours: d.dailySleepHours ?? null,
+  };
+
+  await db
+    .insert(goals)
+    .values(row)
+    .onConflictDoUpdate({
+      target: goals.userId,
+      set: { ...row, updatedAt: sql`now()` },
     });
 
   revalidatePath("/");

@@ -1,9 +1,10 @@
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import { auth, signOut } from "@/auth";
 import { db } from "@/db";
 import {
   activities,
   foodLogs,
+  goals,
   stravaConnections,
   wellnessLogs,
 } from "@/db/schema";
@@ -18,6 +19,9 @@ import {
   WellnessLogForm,
   type WellnessInitial,
 } from "@/app/_components/wellness-log-form";
+import { GoalsForm, type GoalsInitial } from "@/app/_components/goals-form";
+import { ProgressBar } from "@/app/_components/progress-bar";
+import { Sparkline } from "@/app/_components/sparkline";
 
 type SearchParams = Promise<{
   strava_connected?: string;
@@ -84,6 +88,37 @@ function utcDayBounds(now: Date = new Date()): {
   return { start, end, isoDate };
 }
 
+// ISO week (Mon → Sun) in UTC.
+function utcWeekBounds(now: Date = new Date()): { start: Date; end: Date } {
+  const day = now.getUTCDay(); // 0=Sun..6=Sat
+  const mondayOffset = (day + 6) % 7; // days since Monday
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) -
+      mondayOffset * 24 * 60 * 60 * 1000,
+  );
+  const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
+  return { start, end };
+}
+
+// Build an array of length `days` aligned to today (UTC), filling in a value
+// for each ISO day from a sparse map. Returned chronologically (oldest first).
+function alignSeries<T>(
+  rows: Array<{ date: string } & T>,
+  pick: (r: T) => number | null,
+  days: number,
+  todayIso: string,
+): Array<number | null> {
+  const byDate = new Map(rows.map((r) => [r.date, pick(r)]));
+  const out: Array<number | null> = [];
+  const today = new Date(`${todayIso}T00:00:00Z`);
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
+    const iso = d.toISOString().slice(0, 10);
+    out.push(byDate.get(iso) ?? null);
+  }
+  return out;
+}
+
 export default async function Home({
   searchParams,
 }: {
@@ -94,8 +129,22 @@ export default async function Home({
   const userId = session?.user?.id;
 
   const { start: dayStart, end: dayEnd, isoDate: today } = utcDayBounds();
+  const { start: weekStart, end: weekEnd } = utcWeekBounds();
+  // 14-day trend window — includes today.
+  const trendStart = new Date(
+    new Date(`${today}T00:00:00Z`).getTime() - 13 * 24 * 60 * 60 * 1000,
+  );
+  const trendStartIso = trendStart.toISOString().slice(0, 10);
 
-  const [connection, recentActivities, todaysFood, wellnessToday] = userId
+  const [
+    connection,
+    recentActivities,
+    todaysFood,
+    wellnessToday,
+    weekActivities,
+    trendWellness,
+    userGoals,
+  ] = userId
     ? await Promise.all([
         db
           .select()
@@ -128,11 +177,41 @@ export default async function Home({
           )
           .limit(1)
           .then((rows) => rows[0]),
+        db
+          .select()
+          .from(activities)
+          .where(
+            and(
+              eq(activities.userId, userId),
+              gte(activities.startedAt, weekStart),
+              lte(activities.startedAt, weekEnd),
+            ),
+          ),
+        db
+          .select()
+          .from(wellnessLogs)
+          .where(
+            and(
+              eq(wellnessLogs.userId, userId),
+              gte(wellnessLogs.date, trendStartIso),
+              lte(wellnessLogs.date, today),
+            ),
+          )
+          .orderBy(asc(wellnessLogs.date)),
+        db
+          .select()
+          .from(goals)
+          .where(eq(goals.userId, userId))
+          .limit(1)
+          .then((rows) => rows[0]),
       ])
     : [
         undefined,
         [] as (typeof activities.$inferSelect)[],
         [] as (typeof foodLogs.$inferSelect)[],
+        undefined,
+        [] as (typeof activities.$inferSelect)[],
+        [] as (typeof wellnessLogs.$inferSelect)[],
         undefined,
       ];
 
@@ -156,6 +235,40 @@ export default async function Home({
     energy: wellnessToday?.energy ?? null,
     notes: wellnessToday?.notes ?? null,
   };
+
+  const goalsInitial: GoalsInitial = {
+    dailyKcal: userGoals?.dailyKcal ?? null,
+    dailyProteinG: userGoals?.dailyProteinG ?? null,
+    dailyCarbsG: userGoals?.dailyCarbsG ?? null,
+    dailyFatG: userGoals?.dailyFatG ?? null,
+    weeklyActiveKm: userGoals?.weeklyActiveKm ?? null,
+    weeklyActiveMinutes: userGoals?.weeklyActiveMinutes ?? null,
+    weeklyActivitiesCount: userGoals?.weeklyActivitiesCount ?? null,
+    targetWeightKg: userGoals?.targetWeightKg ?? null,
+    dailySleepHours: userGoals?.dailySleepHours ?? null,
+  };
+
+  // Weekly activity rollups (Mon→Sun UTC).
+  const weekTotals = weekActivities.reduce(
+    (acc, a) => ({
+      km: acc.km + (a.distanceM ?? 0) / 1000,
+      minutes: acc.minutes + Math.round((a.movingSeconds ?? 0) / 60),
+      count: acc.count + 1,
+      kcal: acc.kcal + (a.calories ?? 0),
+    }),
+    { km: 0, minutes: 0, count: 0, kcal: 0 },
+  );
+
+  // 14-day trend series, aligned to UTC day grid (oldest → today).
+  const trendRows = trendWellness.map((w) => ({
+    date: w.date,
+    weightKg: w.weightKg,
+    sleepHours: w.sleepHours,
+  }));
+  const weightSeries = alignSeries(trendRows, (r) => r.weightKg, 14, today);
+  const sleepSeries = alignSeries(trendRows, (r) => r.sleepHours, 14, today);
+  const hasTrendData =
+    weightSeries.some((v) => v != null) || sleepSeries.some((v) => v != null);
 
   const cardCls =
     "w-full max-w-md space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950";
@@ -245,32 +358,96 @@ export default async function Home({
       {userId && (
         <section className={cardCls}>
           <h2 className={sectionTitle}>Today (totals)</h2>
-          <dl className="grid grid-cols-4 gap-2 text-center">
-            <div>
-              <dt className="text-xs text-zinc-500">kcal</dt>
-              <dd className="text-lg font-semibold">
-                {Math.round(totals.kcal)}
-              </dd>
+          <div className="space-y-2">
+            <ProgressBar
+              label="kcal"
+              current={totals.kcal}
+              goal={goalsInitial.dailyKcal}
+            />
+            <ProgressBar
+              label="Protein"
+              current={totals.proteinG}
+              goal={goalsInitial.dailyProteinG}
+              unit="g"
+            />
+            <ProgressBar
+              label="Carbs"
+              current={totals.carbsG}
+              goal={goalsInitial.dailyCarbsG}
+              unit="g"
+            />
+            <ProgressBar
+              label="Fat"
+              current={totals.fatG}
+              goal={goalsInitial.dailyFatG}
+              unit="g"
+            />
+          </div>
+        </section>
+      )}
+
+      {userId && (
+        <section className={cardCls}>
+          <h2 className={sectionTitle}>This week</h2>
+          <div className="space-y-2">
+            <ProgressBar
+              label="Distance"
+              current={weekTotals.km}
+              goal={goalsInitial.weeklyActiveKm}
+              unit=" km"
+              fractionDigits={1}
+            />
+            <ProgressBar
+              label="Active minutes"
+              current={weekTotals.minutes}
+              goal={goalsInitial.weeklyActiveMinutes}
+            />
+            <ProgressBar
+              label="Activities"
+              current={weekTotals.count}
+              goal={goalsInitial.weeklyActivitiesCount}
+            />
+            {weekTotals.kcal > 0 && (
+              <ProgressBar
+                label="Activity kcal"
+                current={weekTotals.kcal}
+                goal={null}
+              />
+            )}
+          </div>
+        </section>
+      )}
+
+      {userId && hasTrendData && (
+        <section className={cardCls}>
+          <h2 className={sectionTitle}>Trends (14 days)</h2>
+          <div className="space-y-4">
+            <Sparkline
+              label="Weight"
+              values={weightSeries}
+              unit=" kg"
+              fractionDigits={1}
+            />
+            <Sparkline
+              label="Sleep"
+              values={sleepSeries}
+              unit=" h"
+              fractionDigits={1}
+            />
+          </div>
+        </section>
+      )}
+
+      {userId && (
+        <section className={cardCls}>
+          <details>
+            <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-zinc-500">
+              Goals
+            </summary>
+            <div className="mt-3">
+              <GoalsForm initial={goalsInitial} />
             </div>
-            <div>
-              <dt className="text-xs text-zinc-500">Protein</dt>
-              <dd className="text-lg font-semibold">
-                {Math.round(totals.proteinG)}g
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-zinc-500">Carbs</dt>
-              <dd className="text-lg font-semibold">
-                {Math.round(totals.carbsG)}g
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-zinc-500">Fat</dt>
-              <dd className="text-lg font-semibold">
-                {Math.round(totals.fatG)}g
-              </dd>
-            </div>
-          </dl>
+          </details>
         </section>
       )}
 
