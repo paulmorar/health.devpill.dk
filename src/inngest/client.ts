@@ -35,12 +35,9 @@ export type AppEvents = {
   };
 };
 
-export const inngest = new Inngest<{
-  id: "health-devpill-dk";
-  events: AppEvents;
-}>({
+export const inngest = new Inngest({
   id: "health-devpill-dk",
   // Use the Inngest Dev Server (http://localhost:8288) locally; switch to
   // cloud mode only when deployed to Vercel where INNGEST_SIGNING_KEY exists.
   isDev: process.env.NODE_ENV !== "production",
-});
+}) as Inngest<{ id: "health-devpill-dk"; events: AppEvents }>;

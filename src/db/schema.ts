@@ -43,13 +43,17 @@ export const accounts = pgTable(
     type: text().$type<AdapterAccountType>().notNull(),
     provider: text().notNull(),
     providerAccountId: text().notNull(),
-    refreshToken: text(),
-    accessToken: text(),
-    expiresAt: integer(),
-    tokenType: text(),
+    // The Auth.js Drizzle adapter's types require these exact snake_case
+    // property names on the accounts table. The DB column names are the
+    // same either way (`casing: "snake_case"` is a no-op here), so this
+    // change is type-only.
+    refresh_token: text(),
+    access_token: text(),
+    expires_at: integer(),
+    token_type: text(),
     scope: text(),
-    idToken: text(),
-    sessionState: text(),
+    id_token: text(),
+    session_state: text(),
   },
   (account) => [
     primaryKey({ columns: [account.provider, account.providerAccountId] }),
