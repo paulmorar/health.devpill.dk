@@ -13,12 +13,21 @@
  */
 import {
   useActionState,
+  useCallback,
   useEffect,
   useRef,
   useState,
-  useTransition,
 } from "react";
+import dynamic from "next/dynamic";
 import { addFoodLogAction, type FoodActionResult } from "@/app/_actions/health";
+
+// Lazy-load the camera scanner so the ZXing bundle (~50kb) only ships when
+// the user actually opens it.
+const BarcodeScanner = dynamic(
+  () =>
+    import("@/app/_components/barcode-scanner").then((m) => m.BarcodeScanner),
+  { ssr: false },
+);
 
 function toDatetimeLocalNow(): string {
   // <input type="datetime-local"> wants "YYYY-MM-DDTHH:MM" in *local* time.
@@ -40,6 +49,7 @@ export function FoodLogForm() {
     pending: boolean;
     error: string | null;
   }>({ pending: false, error: null });
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [now, setNow] = useState<string>(""); // set on client to avoid SSR mismatch
 
   useEffect(() => {
@@ -54,12 +64,13 @@ export function FoodLogForm() {
     }
   }, [state]);
 
-  async function handleLookup() {
+  const handleLookup = useCallback(async (barcodeArg?: string) => {
     const form = formRef.current;
     if (!form) return;
     const barcode = (
-      form.elements.namedItem("barcode") as HTMLInputElement
-    )?.value.trim();
+      barcodeArg ??
+      (form.elements.namedItem("barcode") as HTMLInputElement)?.value
+    ).trim();
     if (!barcode) return;
     setLookup({ pending: true, error: null });
     try {
@@ -105,7 +116,22 @@ export function FoodLogForm() {
         error: err instanceof Error ? err.message : "Lookup failed",
       });
     }
-  }
+  }, []);
+
+  const handleScanned = useCallback(
+    (code: string) => {
+      // Reflect into the visible input so the user sees what was scanned,
+      // then auto-trigger the OFF lookup.
+      const form = formRef.current;
+      const input = form?.elements.namedItem("barcode") as
+        | HTMLInputElement
+        | undefined;
+      if (input) input.value = code;
+      setScannerOpen(false);
+      void handleLookup(code);
+    },
+    [handleLookup],
+  );
 
   const inputCls =
     "h-9 w-full rounded-md border border-zinc-200 bg-white px-2 text-sm dark:border-zinc-800 dark:bg-zinc-950";
@@ -131,13 +157,28 @@ export function FoodLogForm() {
         </div>
         <button
           type="button"
-          onClick={handleLookup}
+          onClick={() => setScannerOpen(true)}
+          className="h-9 rounded-md border border-zinc-200 px-3 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+          aria-label="Scan barcode with camera"
+        >
+          Scan
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleLookup()}
           disabled={lookup.pending}
           className="h-9 rounded-md border border-zinc-200 px-3 text-xs font-medium hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:hover:bg-zinc-900"
         >
           {lookup.pending ? "Looking up…" : "Look up"}
         </button>
       </div>
+
+      {scannerOpen && (
+        <BarcodeScanner
+          onDetected={handleScanned}
+          onClose={() => setScannerOpen(false)}
+        />
+      )}
       {lookup.error && (
         <p className="text-xs text-red-600 dark:text-red-400">{lookup.error}</p>
       )}
