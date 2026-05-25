@@ -1,12 +1,23 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { auth, signOut } from "@/auth";
 import { db } from "@/db";
-import { activities, stravaConnections } from "@/db/schema";
+import {
+  activities,
+  foodLogs,
+  stravaConnections,
+  wellnessLogs,
+} from "@/db/schema";
 import {
   connectStravaAction,
   disconnectStravaAction,
 } from "@/app/_actions/strava";
+import { deleteFoodLogAction } from "@/app/_actions/health";
 import { BackfillButton } from "@/app/_components/backfill-button";
+import { FoodLogForm } from "@/app/_components/food-log-form";
+import {
+  WellnessLogForm,
+  type WellnessInitial,
+} from "@/app/_components/wellness-log-form";
 
 type SearchParams = Promise<{
   strava_connected?: string;
@@ -50,6 +61,29 @@ function formatDate(d: Date): string {
   });
 }
 
+function formatTime(d: Date): string {
+  return d.toLocaleString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  });
+}
+
+// Today bounds — UTC. We don't yet track per-user timezone; rolling 24h windows
+// shown as UTC is fine for a personal app while everything is in one tz.
+function utcDayBounds(now: Date = new Date()): {
+  start: Date;
+  end: Date;
+  isoDate: string;
+} {
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+  const isoDate = start.toISOString().slice(0, 10);
+  return { start, end, isoDate };
+}
+
 export default async function Home({
   searchParams,
 }: {
@@ -59,7 +93,9 @@ export default async function Home({
   const params = await searchParams;
   const userId = session?.user?.id;
 
-  const [connection, recentActivities] = userId
+  const { start: dayStart, end: dayEnd, isoDate: today } = utcDayBounds();
+
+  const [connection, recentActivities, todaysFood, wellnessToday] = userId
     ? await Promise.all([
         db
           .select()
@@ -73,8 +109,58 @@ export default async function Home({
           .where(eq(activities.userId, userId))
           .orderBy(desc(activities.startedAt))
           .limit(25),
+        db
+          .select()
+          .from(foodLogs)
+          .where(
+            and(
+              eq(foodLogs.userId, userId),
+              gte(foodLogs.consumedAt, dayStart),
+              lte(foodLogs.consumedAt, dayEnd),
+            ),
+          )
+          .orderBy(desc(foodLogs.consumedAt)),
+        db
+          .select()
+          .from(wellnessLogs)
+          .where(
+            and(eq(wellnessLogs.userId, userId), eq(wellnessLogs.date, today)),
+          )
+          .limit(1)
+          .then((rows) => rows[0]),
       ])
-    : [undefined, [] as (typeof activities.$inferSelect)[]];
+    : [
+        undefined,
+        [] as (typeof activities.$inferSelect)[],
+        [] as (typeof foodLogs.$inferSelect)[],
+        undefined,
+      ];
+
+  const totals = todaysFood.reduce(
+    (acc, f) => ({
+      kcal: acc.kcal + (f.kcal ?? 0),
+      proteinG: acc.proteinG + (f.proteinG ?? 0),
+      carbsG: acc.carbsG + (f.carbsG ?? 0),
+      fatG: acc.fatG + (f.fatG ?? 0),
+    }),
+    { kcal: 0, proteinG: 0, carbsG: 0, fatG: 0 },
+  );
+
+  const wellnessInitial: WellnessInitial = {
+    date: today,
+    weightKg: wellnessToday?.weightKg ?? null,
+    sleepHours: wellnessToday?.sleepHours ?? null,
+    sleepScore: wellnessToday?.sleepScore ?? null,
+    vo2max: wellnessToday?.vo2max ?? null,
+    mood: wellnessToday?.mood ?? null,
+    energy: wellnessToday?.energy ?? null,
+    notes: wellnessToday?.notes ?? null,
+  };
+
+  const cardCls =
+    "w-full max-w-md space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950";
+  const sectionTitle =
+    "text-sm font-semibold uppercase tracking-wide text-zinc-500";
 
   return (
     <main className="flex min-h-dvh flex-col items-center gap-6 p-6">
@@ -100,9 +186,7 @@ export default async function Home({
         )}
 
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-            Strava
-          </h2>
+          <h2 className={sectionTitle}>Strava</h2>
 
           {connection ? (
             <div className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
@@ -158,11 +242,95 @@ export default async function Home({
         </form>
       </div>
 
+      {userId && (
+        <section className={cardCls}>
+          <h2 className={sectionTitle}>Today (totals)</h2>
+          <dl className="grid grid-cols-4 gap-2 text-center">
+            <div>
+              <dt className="text-xs text-zinc-500">kcal</dt>
+              <dd className="text-lg font-semibold">
+                {Math.round(totals.kcal)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-zinc-500">Protein</dt>
+              <dd className="text-lg font-semibold">
+                {Math.round(totals.proteinG)}g
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-zinc-500">Carbs</dt>
+              <dd className="text-lg font-semibold">
+                {Math.round(totals.carbsG)}g
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-zinc-500">Fat</dt>
+              <dd className="text-lg font-semibold">
+                {Math.round(totals.fatG)}g
+              </dd>
+            </div>
+          </dl>
+        </section>
+      )}
+
+      {userId && (
+        <section className={cardCls}>
+          <h2 className={sectionTitle}>Wellness today</h2>
+          <WellnessLogForm initial={wellnessInitial} />
+        </section>
+      )}
+
+      {userId && (
+        <section className={cardCls}>
+          <h2 className={sectionTitle}>Log food</h2>
+          <FoodLogForm />
+        </section>
+      )}
+
+      {userId && todaysFood.length > 0 && (
+        <section className={cardCls}>
+          <h2 className={sectionTitle}>Food today</h2>
+          <ul className="divide-y divide-zinc-100 dark:divide-zinc-900">
+            {todaysFood.map((f) => (
+              <li
+                key={f.id}
+                className="flex items-start justify-between gap-3 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {f.name}
+                    {f.brand && (
+                      <span className="text-zinc-500"> · {f.brand}</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-zinc-500">
+                    {formatTime(f.consumedAt)} · {f.servingGrams}g ·{" "}
+                    {Math.round(f.kcal)} kcal
+                    {f.proteinG != null && ` · P ${Math.round(f.proteinG)}g`}
+                    {f.carbsG != null && ` · C ${Math.round(f.carbsG)}g`}
+                    {f.fatG != null && ` · F ${Math.round(f.fatG)}g`}
+                  </p>
+                </div>
+                <form action={deleteFoodLogAction}>
+                  <input type="hidden" name="id" value={f.id} />
+                  <button
+                    type="submit"
+                    className="text-xs text-zinc-500 hover:text-red-600"
+                    aria-label="Delete entry"
+                  >
+                    ✕
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {connection && (
-        <section className="w-full max-w-md space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-            Recent activities
-          </h2>
+        <section className={cardCls}>
+          <h2 className={sectionTitle}>Recent activities</h2>
           {recentActivities.length === 0 ? (
             <p className="text-sm text-zinc-500">
               No activities yet. Click &ldquo;Backfill last 30 days&rdquo;.

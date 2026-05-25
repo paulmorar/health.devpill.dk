@@ -17,6 +17,8 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  date,
+  doublePrecision,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
 
@@ -151,4 +153,60 @@ export const activities = pgTable(
       t.sourceId,
     ),
   ],
+);
+
+// ─── Phase 2: manual food logging ────────────────────────────────
+// One row per food item consumed. Macros are stored absolute (already
+// computed for `servingGrams`), not per-100g, so the home page / future
+// daily aggregator can just sum without re-computation.
+export const foodLogs = pgTable(
+  "food_logs",
+  {
+    id: text()
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    consumedAt: timestamp({ mode: "date", withTimezone: true }).notNull(),
+    name: text().notNull(),
+    brand: text(),
+    barcode: text(),
+    servingGrams: doublePrecision().notNull(),
+    kcal: doublePrecision().notNull(),
+    proteinG: doublePrecision(),
+    carbsG: doublePrecision(),
+    fatG: doublePrecision(),
+    // "manual" or "openfoodfacts" (extend later: "favorite", "recipe", …).
+    source: text().notNull(),
+    createdAt: timestamp({ mode: "date" }).defaultNow().notNull(),
+  },
+  (t) => [index("food_logs_user_consumed_idx").on(t.userId, t.consumedAt)],
+);
+
+// ─── Phase 2: daily wellness log ─────────────────────────────────
+// One row per user per calendar day. Most fields nullable so the user can
+// fill in whatever they have that day. `date` is a plain `date` (no tz) on
+// purpose — a "day" is a calendar concept tied to the user's life, not UTC.
+export const wellnessLogs = pgTable(
+  "wellness_logs",
+  {
+    id: text()
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: date().notNull(),
+    weightKg: doublePrecision(),
+    sleepHours: doublePrecision(),
+    sleepScore: integer(), // Garmin 0-100
+    vo2max: doublePrecision(), // Garmin reports one decimal
+    mood: integer(), // 1-10
+    energy: integer(), // 1-10
+    notes: text(),
+    createdAt: timestamp({ mode: "date" }).defaultNow().notNull(),
+    updatedAt: timestamp({ mode: "date" }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("wellness_logs_user_date_idx").on(t.userId, t.date)],
 );
