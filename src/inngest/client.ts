@@ -33,6 +33,14 @@ export type AppEvents = {
       activityId: number;
     };
   };
+  "strava/user.sync-recent": {
+    name: "strava/user.sync-recent";
+    data: {
+      userId: string;
+      /** Look back this many hours from now. Defaults handled by the fn. */
+      hoursBack?: number;
+    };
+  };
 };
 
 export const inngest = new Inngest({
