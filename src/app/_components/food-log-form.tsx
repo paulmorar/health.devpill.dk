@@ -38,7 +38,25 @@ function toDatetimeLocalNow(): string {
   )}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function FoodLogForm() {
+function isoIsToday(iso?: string): boolean {
+  if (!iso) return true;
+  const d = new Date();
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const todayLocalIso = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+    d.getDate(),
+  )}`;
+  return iso === todayLocalIso;
+}
+
+// Resolve the initial value for the datetime-local input. For today, use
+// "now"; for a past day picked via the Day tab, use noon of that day so it
+// lands inside the day's window when stored as UTC.
+function initialConsumedAt(defaultDate?: string): string {
+  if (!defaultDate || isoIsToday(defaultDate)) return toDatetimeLocalNow();
+  return `${defaultDate}T12:00`;
+}
+
+export function FoodLogForm({ defaultDate }: { defaultDate?: string } = {}) {
   const formRef = useRef<HTMLFormElement | null>(null);
   const [state, formAction, pending] = useActionState<
     FoodActionResult | null,
@@ -53,16 +71,16 @@ export function FoodLogForm() {
   const [now, setNow] = useState<string>(""); // set on client to avoid SSR mismatch
 
   useEffect(() => {
-    setNow(toDatetimeLocalNow());
-  }, []);
+    setNow(initialConsumedAt(defaultDate));
+  }, [defaultDate]);
 
   useEffect(() => {
     if (state?.ok) {
       formRef.current?.reset();
       setSource("manual");
-      setNow(toDatetimeLocalNow());
+      setNow(initialConsumedAt(defaultDate));
     }
-  }, [state]);
+  }, [state, defaultDate]);
 
   const handleLookup = useCallback(async (barcodeArg?: string) => {
     const form = formRef.current;
@@ -302,7 +320,7 @@ export function FoodLogForm() {
             formRef.current?.reset();
             setSource("manual");
             setLookup({ pending: false, error: null });
-            setNow(toDatetimeLocalNow());
+            setNow(initialConsumedAt(defaultDate));
           }}
           className="h-9 rounded-md border border-zinc-200 px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
         >
