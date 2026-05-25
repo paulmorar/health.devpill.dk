@@ -1,0 +1,34 @@
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+build/
+*.log
+.pnpm-debug.log*
+.npm/
+.pnp.*
+.yarn/cache
+.yarn/install-state.gz
+
+# OS / editors
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
