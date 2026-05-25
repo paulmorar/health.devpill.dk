@@ -82,17 +82,25 @@ async function del(id: string) {
 }
 
 const [, , cmd, arg] = process.argv;
-switch (cmd) {
-  case "list":
-    await list();
-    break;
-  case "create":
-    await create();
-    break;
-  case "delete":
-    await del(arg);
-    break;
-  default:
-    console.error("Usage: pnpm strava:sub <list|create|delete [id]>");
-    process.exit(1);
+
+async function main() {
+  switch (cmd) {
+    case "list":
+      await list();
+      break;
+    case "create":
+      await create();
+      break;
+    case "delete":
+      await del(arg);
+      break;
+    default:
+      console.error("Usage: pnpm strava:sub <list|create|delete [id]>");
+      process.exit(1);
+  }
 }
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
