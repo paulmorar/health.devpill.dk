@@ -132,9 +132,7 @@ export const syncRecentForUser = inngest.createFunction(
       return { status: "ok" as const, count: 0 };
     }
 
-    await step.run("upsert", () =>
-      upsertStravaActivities(userId, activities),
-    );
+    await step.run("upsert", () => upsertStravaActivities(userId, activities));
 
     return { status: "ok" as const, count: activities.length };
   },
