@@ -13,6 +13,10 @@ import {
   timestamp,
   primaryKey,
   integer,
+  bigint,
+  jsonb,
+  index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
 
@@ -68,4 +72,79 @@ export const verificationTokens = pgTable(
     expires: timestamp({ mode: "date" }).notNull(),
   },
   (vt) => [primaryKey({ columns: [vt.identifier, vt.token] })],
+);
+
+// ─── Strava connection (data source, not auth provider) ──────────
+// One row per user. Holds the OAuth tokens we use to call the Strava API
+// on the user's behalf. Tokens are short-lived (6h access, long-lived refresh).
+export const stravaConnections = pgTable("strava_connections", {
+  userId: text()
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  athleteId: bigint({ mode: "number" }).notNull().unique(),
+  accessToken: text().notNull(),
+  refreshToken: text().notNull(),
+  expiresAt: timestamp({ mode: "date" }).notNull(),
+  scope: text().notNull(),
+  athleteFirstname: text(),
+  athleteLastname: text(),
+  athleteUsername: text(),
+  athleteProfile: text(),
+  connectedAt: timestamp({ mode: "date" }).defaultNow().notNull(),
+});
+
+// ─── Strava activity raw payload ─────────────────────────────────
+// Verbatim JSON from Strava's `/athlete/activities` (and later detail/webhook)
+// responses. We keep this so we can re-derive `activities` rows without
+// re-fetching from Strava if our normalization logic changes.
+export const stravaActivitiesRaw = pgTable(
+  "strava_activities_raw",
+  {
+    stravaId: bigint({ mode: "number" }).primaryKey(),
+    userId: text()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    payload: jsonb().notNull(),
+    fetchedAt: timestamp({ mode: "date" }).defaultNow().notNull(),
+  },
+  (t) => [index("strava_activities_raw_user_idx").on(t.userId)],
+);
+
+// ─── Normalized activities ───────────────────────────────────────
+// One row per activity. Source-agnostic shape so we can later mix in
+// manual entries or other providers without schema churn.
+export const activities = pgTable(
+  "activities",
+  {
+    id: text()
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    source: text().notNull(), // "strava" for now
+    sourceId: text().notNull(), // stringified strava activity id
+    sportType: text().notNull(), // strava sport_type (Run, Ride, Walk, …)
+    name: text(),
+    startedAt: timestamp({ mode: "date", withTimezone: true }).notNull(),
+    timezone: text(),
+    distanceM: integer(),
+    movingSeconds: integer(),
+    elapsedSeconds: integer(),
+    elevationGainM: integer(),
+    calories: integer(),
+    avgHr: integer(),
+    maxHr: integer(),
+    createdAt: timestamp({ mode: "date" }).defaultNow().notNull(),
+    updatedAt: timestamp({ mode: "date" }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("activities_user_started_idx").on(t.userId, t.startedAt),
+    // A given source can only contribute each external id once per user.
+    uniqueIndex("activities_source_unique_idx").on(
+      t.userId,
+      t.source,
+      t.sourceId,
+    ),
+  ],
 );

@@ -9,8 +9,13 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
   const isAuthRoute =
     pathname.startsWith("/signin") || pathname.startsWith("/api/auth");
+  // Machine-to-machine endpoints: Strava webhooks and Inngest deliveries.
+  // Both are authenticated by their own mechanisms (verify_token, signing key).
+  const isMachineRoute =
+    pathname.startsWith("/api/strava/webhook") ||
+    pathname.startsWith("/api/inngest");
 
-  if (!req.auth && !isAuthRoute) {
+  if (!req.auth && !isAuthRoute && !isMachineRoute) {
     const signinUrl = new URL("/signin", req.nextUrl);
     return NextResponse.redirect(signinUrl);
   }
