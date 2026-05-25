@@ -4,7 +4,7 @@
  * Daily wellness form. Upserts a single row for (userId, date). Pre-filled
  * from the existing row for today if any.
  */
-import { useActionState } from "react";
+import { useActionState, useRef } from "react";
 import {
   upsertWellnessLogAction,
   type WellnessActionResult,
@@ -22,6 +22,7 @@ export type WellnessInitial = {
 };
 
 export function WellnessLogForm({ initial }: { initial: WellnessInitial }) {
+  const formRef = useRef<HTMLFormElement | null>(null);
   const [state, formAction, pending] = useActionState<
     WellnessActionResult | null,
     FormData
@@ -34,7 +35,7 @@ export function WellnessLogForm({ initial }: { initial: WellnessInitial }) {
   const def = (v: number | null) => (v == null ? "" : String(v));
 
   return (
-    <form action={formAction} className="space-y-3">
+    <form ref={formRef} action={formAction} className="space-y-3">
       <div className="grid grid-cols-2 gap-2">
         <div className="col-span-2 space-y-1">
           <label htmlFor="w-date" className={labelCls}>
@@ -159,13 +160,41 @@ export function WellnessLogForm({ initial }: { initial: WellnessInitial }) {
         <p className="text-xs text-emerald-600 dark:text-emerald-400">Saved.</p>
       )}
 
-      <button
-        type="submit"
-        disabled={pending}
-        className="h-9 rounded-md bg-zinc-900 px-4 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-      >
-        {pending ? "Saving…" : "Save wellness"}
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="submit"
+          disabled={pending}
+          className="h-9 rounded-md bg-zinc-900 px-4 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        >
+          {pending ? "Saving…" : "Save wellness"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const form = formRef.current;
+            if (!form) return;
+            // Empty every numeric/text field but keep the date pinned to
+            // today (clearing makes no sense for the row identifier).
+            const clear = (name: string) => {
+              const el = form.elements.namedItem(name) as
+                | HTMLInputElement
+                | HTMLTextAreaElement
+                | null;
+              if (el) el.value = "";
+            };
+            clear("weightKg");
+            clear("sleepHours");
+            clear("sleepScore");
+            clear("vo2max");
+            clear("mood");
+            clear("energy");
+            clear("notes");
+          }}
+          className="h-9 rounded-md border border-zinc-200 px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+        >
+          Clear
+        </button>
+      </div>
     </form>
   );
 }

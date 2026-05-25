@@ -288,13 +288,27 @@ export function FoodLogForm() {
         </p>
       )}
 
-      <button
-        type="submit"
-        disabled={pending}
-        className="h-9 rounded-md bg-zinc-900 px-4 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-      >
-        {pending ? "Saving…" : "Add food"}
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="submit"
+          disabled={pending}
+          className="h-9 rounded-md bg-zinc-900 px-4 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        >
+          {pending ? "Saving…" : "Add food"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            formRef.current?.reset();
+            setSource("manual");
+            setLookup({ pending: false, error: null });
+            setNow(toDatetimeLocalNow());
+          }}
+          className="h-9 rounded-md border border-zinc-200 px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+        >
+          Clear
+        </button>
+      </div>
     </form>
   );
 }

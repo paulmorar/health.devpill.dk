@@ -16,11 +16,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
-import {
-  BarcodeFormat,
-  DecodeHintType,
-  type Result,
-} from "@zxing/library";
+import { BarcodeFormat, DecodeHintType, type Result } from "@zxing/library";
 
 const HINTS = new Map<DecodeHintType, unknown>([
   [
