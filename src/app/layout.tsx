@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -13,8 +13,24 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "health.devpill.dk",
-  description: "Personal health dashboard",
+  title: {
+    default: "health.devpill.dk",
+    template: "%s · health.devpill.dk",
+  },
+  description: "Personal health dashboard — food, training and recovery.",
+  applicationName: "health.devpill.dk",
+  appleWebApp: {
+    capable: true,
+    title: "health",
+    statusBarStyle: "black-translucent",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#05060a" },
+  ],
 };
 
 export default function RootLayout({

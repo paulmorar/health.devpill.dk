@@ -88,7 +88,7 @@ export function Tabs({ active }: { active: TabKey }) {
     <nav
       role="tablist"
       aria-label="Sections"
-      className="flex w-full max-w-md gap-1 rounded-xl border border-zinc-200 bg-white p-1 shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
+      className="flex w-full gap-1 rounded-xl border border-zinc-200 bg-white p-1 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 sm:max-w-md"
     >
       {TABS.map((t) => {
         const isActive = t.key === active;

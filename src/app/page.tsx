@@ -34,6 +34,7 @@ import { MacroRing } from "@/app/_components/macro-ring";
 import { ActivityCard } from "@/app/_components/activity-card";
 import { InsightChips, type Chip } from "@/app/_components/insight-chips";
 import { SportIcon } from "@/app/_components/sport-icon";
+import { Logo } from "@/app/_components/logo";
 
 type SearchParams = Promise<{
   tab?: string;
@@ -126,7 +127,7 @@ function parseRange(v: string | undefined): RangeDays {
 // ── Shared styles ─────────────────────────────────────────────────
 
 const cardCls =
-  "w-full max-w-md space-y-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950";
+  "w-full space-y-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950";
 const sectionTitle =
   "text-sm font-semibold uppercase tracking-wide text-zinc-500";
 
@@ -143,11 +144,9 @@ export default async function Home({
 
   if (!userId) {
     return (
-      <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center p-6">
-        <div className={cardCls}>
-          <h1 className="text-xl font-semibold tracking-tight">
-            health.devpill.dk
-          </h1>
+      <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center justify-center p-6">
+        <div className={cardCls + " max-w-md"}>
+          <Logo className="text-xl" />
           <p className="text-sm text-zinc-500">Sign in to continue.</p>
           <form
             action={async () => {
@@ -173,16 +172,12 @@ export default async function Home({
     params.d && /^\d{4}-\d{2}-\d{2}$/.test(params.d) ? params.d : today;
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col items-stretch gap-4 p-4 sm:p-6">
+    <main className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col items-stretch gap-4 p-4 sm:p-6">
       <header className="flex items-center justify-between gap-3 px-1">
-        <div className="min-w-0">
-          <h1 className="text-lg font-semibold tracking-tight">
-            health.devpill.dk
-          </h1>
-          <p className="truncate text-xs text-zinc-500">
-            {session.user?.email}
-          </p>
-        </div>
+        <Logo className="text-lg sm:text-xl" />
+        <p className="truncate text-xs text-zinc-500" title={session.user?.email ?? undefined}>
+          {session.user?.email}
+        </p>
       </header>
 
       <Tabs active={tab} />
@@ -203,17 +198,29 @@ export default async function Home({
         </div>
       )}
 
-      {tab === "day" && <DayTab userId={userId} day={day} />}
-      {tab === "trends" && (
-        <TrendsTab
-          userId={userId}
-          range={parseRange(params.range)}
-          today={today}
-        />
+      {tab === "day" && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <DayTab userId={userId} day={day} />
+        </div>
       )}
-      {tab === "goals" && <GoalsTab userId={userId} />}
+      {tab === "trends" && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <TrendsTab
+            userId={userId}
+            range={parseRange(params.range)}
+            today={today}
+          />
+        </div>
+      )}
+      {tab === "goals" && (
+        <div className="mx-auto w-full max-w-2xl">
+          <GoalsTab userId={userId} />
+        </div>
+      )}
       {tab === "account" && (
-        <AccountTab userId={userId} email={session.user?.email ?? null} />
+        <div className="mx-auto grid w-full max-w-2xl grid-cols-1 gap-4">
+          <AccountTab userId={userId} email={session.user?.email ?? null} />
+        </div>
       )}
     </main>
   );
@@ -345,12 +352,12 @@ async function DayTab({ userId, day }: { userId: string; day: string }) {
 
   return (
     <>
-      <section className={cardCls}>
+      <section className={cardCls + " lg:col-span-12"}>
         <DayNav date={day} />
         {chips.length > 0 && <InsightChips chips={chips} />}
       </section>
 
-      <section className={cardCls}>
+      <section className={cardCls + " lg:col-span-7"}>
         <CalorieHero
           consumed={totals.kcal}
           burned={burnedKcal}
@@ -379,7 +386,7 @@ async function DayTab({ userId, day }: { userId: string; day: string }) {
         </div>
       </section>
 
-      <section className={cardCls}>
+      <section className={cardCls + " lg:col-span-5"}>
         <div className="flex items-center justify-between">
           <h2 className={sectionTitle}>Wellness</h2>
           {hasWellness && (
@@ -397,7 +404,7 @@ async function DayTab({ userId, day }: { userId: string; day: string }) {
         </Collapsible>
       </section>
 
-      <section className={cardCls}>
+      <section className={cardCls + " lg:col-span-7"}>
         <div className="flex items-center justify-between">
           <h2 className={sectionTitle}>Food</h2>
           <span className="text-xs text-zinc-500">
@@ -470,7 +477,7 @@ async function DayTab({ userId, day }: { userId: string; day: string }) {
         )}
       </section>
 
-      <section className={cardCls}>
+      <section className={cardCls + " lg:col-span-5"}>
         <div className="flex items-center justify-between">
           <h2 className={sectionTitle}>Activities</h2>
           {dayActivities.length > 0 && (
@@ -720,7 +727,7 @@ async function TrendsTab({
 
   return (
     <>
-      <section className={cardCls}>
+      <section className={cardCls + " lg:col-span-4 lg:sticky lg:top-4 lg:self-start"}>
         <div className="flex items-center justify-between">
           <h2 className={sectionTitle}>This week</h2>
           <span className="text-xs text-zinc-400">Mon → Sun</span>
@@ -756,12 +763,12 @@ async function TrendsTab({
         </div>
       </section>
 
-      <section className={cardCls}>
+      <section className={cardCls + " lg:col-span-8"}>
         <div className="flex items-center justify-between">
           <h2 className={sectionTitle}>Trends</h2>
           <RangeSelector active={range} />
         </div>
-        <div className="space-y-6 pt-1">
+        <div className="grid grid-cols-1 gap-6 pt-1 xl:grid-cols-2 xl:gap-x-8">
           <LineChart
             label="Weight"
             unit=" kg"
