@@ -29,6 +29,11 @@ import {
   RangeSelector,
   type RangeDays,
 } from "@/app/_components/range-selector";
+import { CalorieHero } from "@/app/_components/calorie-hero";
+import { MacroRing } from "@/app/_components/macro-ring";
+import { ActivityCard } from "@/app/_components/activity-card";
+import { InsightChips, type Chip } from "@/app/_components/insight-chips";
+import { SportIcon } from "@/app/_components/sport-icon";
 
 type SearchParams = Promise<{
   tab?: string;
@@ -48,21 +53,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 
 // ── Formatting helpers ─────────────────────────────────────────────
 // One-off and locale-pinned so SSR matches client (no hydration warnings).
-
-function formatDistance(meters: number | null): string | null {
-  if (meters == null) return null;
-  const km = meters / 1000;
-  return `${km.toFixed(km < 10 ? 2 : 1)} km`;
-}
-
-function formatDuration(seconds: number | null): string | null {
-  if (seconds == null) return null;
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (h > 0) return `${h}h ${m.toString().padStart(2, "0")}m`;
-  return `${m}m ${s.toString().padStart(2, "0")}s`;
-}
+// (Distance/duration formatters live next to <ActivityCard> now.)
 
 function formatTime(d: Date): string {
   return d.toLocaleString("en-GB", {
@@ -233,7 +224,22 @@ export default async function Home({
 async function DayTab({ userId, day }: { userId: string; day: string }) {
   const { start, end } = utcDayBoundsFromIso(day);
 
-  const [dayFood, dayWellness, dayActivities, userGoals] = await Promise.all([
+  // For insight chips: last 30 days of food (streak), this week's activities,
+  // and the last few wellness rows to compute a weekly weight delta.
+  const streakStart = new Date(start.getTime() - 30 * 86400000);
+  const { start: weekStart, end: weekEnd } = utcWeekBounds(
+    new Date(`${day}T12:00:00Z`),
+  );
+
+  const [
+    dayFood,
+    dayWellness,
+    dayActivities,
+    userGoals,
+    streakFood,
+    weekActivitiesForChips,
+    recentWellness,
+  ] = await Promise.all([
     db
       .select()
       .from(foodLogs)
@@ -268,6 +274,37 @@ async function DayTab({ userId, day }: { userId: string; day: string }) {
       .where(eq(goals.userId, userId))
       .limit(1)
       .then((rows) => rows[0]),
+    db
+      .select({ consumedAt: foodLogs.consumedAt })
+      .from(foodLogs)
+      .where(
+        and(
+          eq(foodLogs.userId, userId),
+          gte(foodLogs.consumedAt, streakStart),
+          lte(foodLogs.consumedAt, end),
+        ),
+      ),
+    db
+      .select()
+      .from(activities)
+      .where(
+        and(
+          eq(activities.userId, userId),
+          gte(activities.startedAt, weekStart),
+          lte(activities.startedAt, weekEnd),
+        ),
+      ),
+    db
+      .select()
+      .from(wellnessLogs)
+      .where(
+        and(
+          eq(wellnessLogs.userId, userId),
+          gte(wellnessLogs.date, isoDaysAgo(day, 30)),
+          lte(wellnessLogs.date, day),
+        ),
+      )
+      .orderBy(asc(wellnessLogs.date)),
   ]);
 
   const totals = dayFood.reduce(
@@ -279,6 +316,19 @@ async function DayTab({ userId, day }: { userId: string; day: string }) {
     }),
     { kcal: 0, proteinG: 0, carbsG: 0, fatG: 0 },
   );
+
+  const burnedKcal = dayActivities.reduce(
+    (acc, a) => acc + (a.calories ?? 0),
+    0,
+  );
+
+  const chips = computeInsightChips({
+    refDay: day,
+    streakFood: streakFood.map((r) => r.consumedAt),
+    weekActivities: weekActivitiesForChips,
+    recentWellness,
+    targetWeightKg: userGoals?.targetWeightKg ?? null,
+  });
 
   const wellnessInitial: WellnessInitial = {
     date: day,
@@ -297,38 +347,34 @@ async function DayTab({ userId, day }: { userId: string; day: string }) {
     <>
       <section className={cardCls}>
         <DayNav date={day} />
+        {chips.length > 0 && <InsightChips chips={chips} />}
       </section>
 
       <section className={cardCls}>
-        <div className="flex items-center justify-between">
-          <h2 className={sectionTitle}>Totals</h2>
-          <span className="text-xs text-zinc-400">
-            {dayFood.length} {dayFood.length === 1 ? "item" : "items"}
-          </span>
-        </div>
-        <div className="space-y-2">
-          <ProgressBar
-            label="kcal"
-            current={totals.kcal}
-            goal={userGoals?.dailyKcal ?? null}
-          />
-          <ProgressBar
+        <CalorieHero
+          consumed={totals.kcal}
+          burned={burnedKcal}
+          goal={userGoals?.dailyKcal ?? null}
+        />
+        <div className="mt-2 grid grid-cols-3 gap-2 pt-2">
+          <MacroRing
             label="Protein"
             current={totals.proteinG}
             goal={userGoals?.dailyProteinG ?? null}
-            unit="g"
+            tone="protein"
+            overIsGood
           />
-          <ProgressBar
+          <MacroRing
             label="Carbs"
             current={totals.carbsG}
             goal={userGoals?.dailyCarbsG ?? null}
-            unit="g"
+            tone="carbs"
           />
-          <ProgressBar
+          <MacroRing
             label="Fat"
             current={totals.fatG}
             goal={userGoals?.dailyFatG ?? null}
-            unit="g"
+            tone="fat"
           />
         </div>
       </section>
@@ -337,7 +383,7 @@ async function DayTab({ userId, day }: { userId: string; day: string }) {
         <div className="flex items-center justify-between">
           <h2 className={sectionTitle}>Wellness</h2>
           {hasWellness && (
-            <span className="text-xs text-emerald-600 dark:text-emerald-400">
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
               logged
             </span>
           )}
@@ -354,14 +400,19 @@ async function DayTab({ userId, day }: { userId: string; day: string }) {
       <section className={cardCls}>
         <div className="flex items-center justify-between">
           <h2 className={sectionTitle}>Food</h2>
-          <span className="text-xs text-zinc-400">
+          <span className="text-xs text-zinc-500">
             {dayFood.length} {dayFood.length === 1 ? "entry" : "entries"}
           </span>
         </div>
         <Collapsible addLabel="+ Add food">
           <FoodLogForm defaultDate={day} />
         </Collapsible>
-        {dayFood.length > 0 && (
+        {dayFood.length === 0 ? (
+          <EmptyState
+            title="Nothing logged yet"
+            hint="Tap “Add food” above to start the day."
+          />
+        ) : (
           <ul className="divide-y divide-zinc-100 dark:divide-zinc-900">
             {dayFood.map((f) => (
               <li
@@ -376,18 +427,38 @@ async function DayTab({ userId, day }: { userId: string; day: string }) {
                     )}
                   </p>
                   <p className="text-xs text-zinc-500">
-                    {formatTime(f.consumedAt)} · {f.servingGrams}g ·{" "}
-                    {Math.round(f.kcal)} kcal
-                    {f.proteinG != null && ` · P ${Math.round(f.proteinG)}g`}
-                    {f.carbsG != null && ` · C ${Math.round(f.carbsG)}g`}
-                    {f.fatG != null && ` · F ${Math.round(f.fatG)}g`}
+                    <span className="tabular-nums">
+                      {formatTime(f.consumedAt)}
+                    </span>{" "}
+                    · {f.servingGrams}g ·{" "}
+                    <span className="font-semibold text-zinc-700 dark:text-zinc-300 tabular-nums">
+                      {Math.round(f.kcal)} kcal
+                    </span>
+                    {f.proteinG != null && (
+                      <span className="text-sky-600 dark:text-sky-400">
+                        {" "}
+                        · P {Math.round(f.proteinG)}g
+                      </span>
+                    )}
+                    {f.carbsG != null && (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        {" "}
+                        · C {Math.round(f.carbsG)}g
+                      </span>
+                    )}
+                    {f.fatG != null && (
+                      <span className="text-pink-600 dark:text-pink-400">
+                        {" "}
+                        · F {Math.round(f.fatG)}g
+                      </span>
+                    )}
                   </p>
                 </div>
                 <form action={deleteFoodLogAction}>
                   <input type="hidden" name="id" value={f.id} />
                   <button
                     type="submit"
-                    className="text-xs text-zinc-500 hover:text-red-600"
+                    className="rounded-md p-1 text-xs text-zinc-400 outline-none hover:bg-rose-50 hover:text-rose-600 focus-visible:ring-2 focus-visible:ring-rose-500/60 dark:hover:bg-rose-950/40"
                     aria-label="Delete entry"
                   >
                     ✕
@@ -400,46 +471,145 @@ async function DayTab({ userId, day }: { userId: string; day: string }) {
       </section>
 
       <section className={cardCls}>
-        <h2 className={sectionTitle}>Activities</h2>
+        <div className="flex items-center justify-between">
+          <h2 className={sectionTitle}>Activities</h2>
+          {dayActivities.length > 0 && (
+            <span className="text-xs text-zinc-500">
+              {dayActivities.length}{" "}
+              {dayActivities.length === 1 ? "session" : "sessions"}
+            </span>
+          )}
+        </div>
         {dayActivities.length === 0 ? (
-          <p className="text-sm text-zinc-500">No activities on this day.</p>
+          <EmptyState
+            title="Rest day"
+            hint="No activities logged — recovery counts too."
+            icon={<SportIcon sportType="rest" size={36} />}
+          />
         ) : (
-          <ul className="divide-y divide-zinc-100 dark:divide-zinc-900">
-            {dayActivities.map((a) => {
-              const distance = formatDistance(a.distanceM);
-              const duration = formatDuration(a.movingSeconds);
-              return (
-                <li key={a.id} className="py-3">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <p className="truncate text-sm font-medium">
-                      {a.name ?? a.sportType}
-                    </p>
-                    <p className="shrink-0 text-xs text-zinc-500">
-                      {formatTime(a.startedAt)}
-                    </p>
-                  </div>
-                  <p className="text-xs text-zinc-500">
-                    {a.sportType}
-                    {distance && ` · ${distance}`}
-                    {duration && ` · ${duration}`}
-                    {a.avgHr != null && ` · ${a.avgHr} bpm`}
-                    {a.calories != null && ` · ${a.calories} kcal`}
-                  </p>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="space-y-2">
+            {dayActivities.map((a) => (
+              <ActivityCard key={a.id} a={a} />
+            ))}
+          </div>
         )}
       </section>
     </>
   );
 }
 
-function WellnessSummary({
-  w,
+// ── Day-tab helpers ────────────────────────────────────────────────
+
+function isoDaysAgo(refIso: string, n: number): string {
+  const d = new Date(`${refIso}T00:00:00Z`);
+  return new Date(d.getTime() - n * 86400000).toISOString().slice(0, 10);
+}
+
+function computeInsightChips({
+  refDay,
+  streakFood,
+  weekActivities,
+  recentWellness,
+  targetWeightKg,
 }: {
-  w: typeof wellnessLogs.$inferSelect;
+  refDay: string;
+  streakFood: Date[];
+  weekActivities: Array<typeof activities.$inferSelect>;
+  recentWellness: Array<typeof wellnessLogs.$inferSelect>;
+  targetWeightKg: number | null;
+}): Chip[] {
+  const out: Chip[] = [];
+
+  // Streak: count consecutive UTC days ending at refDay that have ≥1 food log.
+  const daySet = new Set(streakFood.map((d) => d.toISOString().slice(0, 10)));
+  let streak = 0;
+  let cursor = new Date(`${refDay}T00:00:00Z`);
+  while (daySet.has(cursor.toISOString().slice(0, 10))) {
+    streak += 1;
+    cursor = new Date(cursor.getTime() - 86400000);
+    if (streak > 365) break; // safety
+  }
+  if (streak > 0) {
+    out.push({
+      icon: "🔥",
+      value: `${streak}`,
+      label: streak === 1 ? "day streak" : "day streak",
+      tone: streak >= 3 ? "good" : "neutral",
+    });
+  }
+
+  // Workouts this week
+  if (weekActivities.length > 0) {
+    out.push({
+      icon: "💪",
+      value: `${weekActivities.length}`,
+      label:
+        weekActivities.length === 1 ? "workout this wk" : "workouts this wk",
+      tone: "good",
+    });
+  }
+
+  // Weight delta vs ~7 days ago using the closest wellness entries.
+  const weights = recentWellness
+    .filter((w): w is typeof w & { weightKg: number } => w.weightKg != null)
+    .map((w) => ({ date: w.date, kg: w.weightKg as number }));
+  if (weights.length >= 2) {
+    const latest = weights[weights.length - 1];
+    const target =
+      new Date(`${latest.date}T00:00:00Z`).getTime() - 7 * 86400000;
+    // Pick the wellness entry closest to (but not after) 7 days before latest.
+    let earlier = weights[0];
+    for (const w of weights) {
+      const t = new Date(`${w.date}T00:00:00Z`).getTime();
+      if (t <= target) earlier = w;
+    }
+    if (earlier.date !== latest.date) {
+      const delta = latest.kg - earlier.kg;
+      const sign = delta > 0 ? "+" : "−";
+      const tone: Chip["tone"] =
+        targetWeightKg != null
+          ? // moving toward target = good
+            (targetWeightKg < latest.kg ? delta < 0 : delta > 0)
+            ? "good"
+            : delta === 0
+              ? "neutral"
+              : "warn"
+          : "neutral";
+      out.push({
+        icon: "⚖️",
+        value: `${sign}${Math.abs(delta).toFixed(1)} kg`,
+        label: "vs last wk",
+        tone,
+      });
+    }
+  }
+
+  return out;
+}
+
+function EmptyState({
+  title,
+  hint,
+  icon,
+}: {
+  title: string;
+  hint: string;
+  icon?: React.ReactNode;
 }) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-dashed border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+      {icon}
+      <div>
+        <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          {title}
+        </p>
+        <p className="text-xs text-zinc-500">{hint}</p>
+      </div>
+    </div>
+  );
+}
+
+function WellnessSummary({ w }: { w: typeof wellnessLogs.$inferSelect }) {
   const items: Array<{ label: string; value: string }> = [];
   if (w.weightKg != null)
     items.push({ label: "Weight", value: `${w.weightKg} kg` });
@@ -447,8 +617,7 @@ function WellnessSummary({
     items.push({ label: "Sleep", value: `${w.sleepHours} h` });
   if (w.sleepScore != null)
     items.push({ label: "Sleep score", value: `${w.sleepScore}` });
-  if (w.vo2max != null)
-    items.push({ label: "VO₂max", value: `${w.vo2max}` });
+  if (w.vo2max != null) items.push({ label: "VO₂max", value: `${w.vo2max}` });
   if (w.mood != null) items.push({ label: "Mood", value: `${w.mood}/10` });
   if (w.energy != null)
     items.push({ label: "Energy", value: `${w.energy}/10` });
@@ -563,16 +732,19 @@ async function TrendsTab({
             goal={userGoals?.weeklyActiveKm ?? null}
             unit=" km"
             fractionDigits={1}
+            overIsGood
           />
           <ProgressBar
             label="Active minutes"
             current={weekTotals.minutes}
             goal={userGoals?.weeklyActiveMinutes ?? null}
+            overIsGood
           />
           <ProgressBar
             label="Activities"
             current={weekTotals.count}
             goal={userGoals?.weeklyActivitiesCount ?? null}
+            overIsGood
           />
           {weekTotals.kcal > 0 && (
             <ProgressBar

@@ -1,6 +1,11 @@
 /**
  * Tiny presentational progress bar. If `goal` is null, renders just the
  * current value (no bar) — keeps the UI honest about "no target set".
+ *
+ * Color semantics:
+ *   - default: under goal = emerald, over goal = amber (warning)
+ *   - `overIsGood`: exceeding goal stays emerald (e.g. protein, active
+ *     minutes, distance — going beyond is a win, not a warning)
  */
 export function ProgressBar({
   label,
@@ -8,12 +13,14 @@ export function ProgressBar({
   goal,
   unit = "",
   fractionDigits = 0,
+  overIsGood = false,
 }: {
   label: string;
   current: number;
   goal: number | null;
   unit?: string;
   fractionDigits?: number;
+  overIsGood?: boolean;
 }) {
   const fmt = (n: number) =>
     n.toLocaleString(undefined, {
@@ -37,6 +44,7 @@ export function ProgressBar({
 
   const pct = Math.min(100, Math.max(0, (current / goal) * 100));
   const over = current > goal;
+  const showWarning = over && !overIsGood;
 
   return (
     <div className="space-y-1">
@@ -54,7 +62,7 @@ export function ProgressBar({
       <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
         <div
           className={
-            (over
+            (showWarning
               ? "bg-amber-500 dark:bg-amber-400"
               : "bg-emerald-500 dark:bg-emerald-400") +
             " h-full rounded-full transition-[width]"
