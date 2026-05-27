@@ -52,6 +52,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   token_exchange_failed: "Could not exchange the Strava code for a token.",
 };
 
+const AVERAGE_HUMAN_DAILY_BURN_KCAL = 2000;
+
 // ── Formatting helpers ─────────────────────────────────────────────
 // One-off and locale-pinned so SSR matches client (no hydration warnings).
 // (Distance/duration formatters live next to <ActivityCard> now.)
@@ -175,7 +177,10 @@ export default async function Home({
     <main className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col items-stretch gap-4 p-4 sm:p-6">
       <header className="flex items-center justify-between gap-3 px-1">
         <Logo className="text-lg sm:text-xl" />
-        <p className="truncate text-xs text-zinc-500" title={session.user?.email ?? undefined}>
+        <p
+          className="truncate text-xs text-zinc-500"
+          title={session.user?.email ?? undefined}
+        >
           {session.user?.email}
         </p>
       </header>
@@ -360,7 +365,9 @@ async function DayTab({ userId, day }: { userId: string; day: string }) {
       <section className={cardCls + " lg:col-span-7"}>
         <CalorieHero
           consumed={totals.kcal}
-          burned={burnedKcal}
+          burned={burnedKcal + AVERAGE_HUMAN_DAILY_BURN_KCAL}
+          activityBurned={burnedKcal}
+          restingBurned={AVERAGE_HUMAN_DAILY_BURN_KCAL}
           goal={userGoals?.dailyKcal ?? null}
         />
         <div className="mt-2 grid grid-cols-3 gap-2 pt-2">
@@ -727,7 +734,9 @@ async function TrendsTab({
 
   return (
     <>
-      <section className={cardCls + " lg:col-span-4 lg:sticky lg:top-4 lg:self-start"}>
+      <section
+        className={cardCls + " lg:col-span-4 lg:sticky lg:top-4 lg:self-start"}
+      >
         <div className="flex items-center justify-between">
           <h2 className={sectionTitle}>This week</h2>
           <span className="text-xs text-zinc-400">Mon → Sun</span>

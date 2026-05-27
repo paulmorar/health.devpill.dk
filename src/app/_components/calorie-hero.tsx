@@ -16,10 +16,14 @@
 export function CalorieHero({
   consumed,
   burned,
+  activityBurned,
+  restingBurned,
   goal,
 }: {
   consumed: number;
   burned: number;
+  activityBurned: number;
+  restingBurned: number;
   goal: number | null;
 }) {
   const size = 168;
@@ -52,6 +56,7 @@ export function CalorieHero({
   const aria = hasGoal
     ? `Calories consumed ${Math.round(consumed)} of ${goal}; ${remainingLabel}`
     : `Calories consumed ${Math.round(consumed)}; no goal set`;
+  const hasActivityBurn = activityBurned > 0;
 
   return (
     <div className="flex flex-col items-center gap-4">
@@ -120,9 +125,9 @@ export function CalorieHero({
         />
         <HeroStat
           label="Burned"
-          value={burned > 0 ? Math.round(burned).toLocaleString() : "—"}
-          unit={burned > 0 ? "kcal" : ""}
-          tone={burned > 0 ? "good" : "muted"}
+          value={Math.round(burned).toLocaleString()}
+          unit="kcal"
+          tone="good"
         />
         <HeroStat
           label="Net"
@@ -131,6 +136,14 @@ export function CalorieHero({
           tone={hasGoal && net > (goal as number) ? "warn" : "neutral"}
         />
       </div>
+      <p className="text-[11px] text-zinc-500">
+        Burned includes {Math.round(restingBurned).toLocaleString()} kcal
+        resting burn
+        {hasActivityBurn
+          ? ` + ${Math.round(activityBurned).toLocaleString()} kcal activity`
+          : ""}
+        .
+      </p>
     </div>
   );
 }
